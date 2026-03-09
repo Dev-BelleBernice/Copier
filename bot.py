@@ -4,10 +4,38 @@ from dotenv import load_dotenv
 import os
 import asyncio
 import platform
+import json
+
+DEFAULT_PREFIX = "copier "
+PREFIXES_FILE = "prefixes.json"
+
+
+def load_prefixes() -> dict:
+    try:
+        with open(PREFIXES_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_prefixes(data: dict) -> None:
+    with open(PREFIXES_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+
+prefixes: dict = load_prefixes()
+
+
+def get_prefix(bot: commands.Bot, message: discord.Message):
+    if message.guild is None:
+        prefix = DEFAULT_PREFIX
+    else:
+        prefix = prefixes.get(str(message.guild.id), DEFAULT_PREFIX)
+    return commands.when_mentioned_or(prefix)(bot, message)
 
 load_dotenv()
 
-bot = commands.Bot(command_prefix=commands.when_mentioned_or("copier "), intents=discord.Intents.all())
+bot = commands.Bot(command_prefix=get_prefix, intents=discord.Intents.all())
 
 class Help(commands.HelpCommand):
     async def send_bot_help(self, mapping):
@@ -363,6 +391,27 @@ async def role_nuke(ctx: commands.Context, role: discord.Role):
     """
     await ctx.invoke(role_clone, role)
     await ctx.invoke(role_delete, role)
+
+
+@commands.guild_only()
+@commands.has_permissions(manage_guild=True)
+@bot.command(name="prefix", usage="prefix <new_prefix>")
+async def change_prefix(ctx: commands.Context, *, new_prefix: str):
+    """Changes the command prefix for this server.
+
+    `new_prefix` - The new prefix to use.
+    """
+    # normalise to always have a trailing space for nicer commands
+    if not new_prefix.endswith(" "):
+        new_prefix_display = new_prefix
+        new_prefix = new_prefix + " "
+    else:
+        new_prefix_display = new_prefix.rstrip()
+
+    prefixes[str(ctx.guild.id)] = new_prefix
+    save_prefixes(prefixes)
+    await ctx.send(f"Prefix updated to `{new_prefix_display}`. Try `{new_prefix_display}help`.")
+
 
 bot.help_command = Help()
 if platform.system() == "Windows":
